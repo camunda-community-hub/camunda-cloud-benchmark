@@ -1,6 +1,7 @@
 package org.camunda.community.benchmarks;
 
 import io.camunda.zeebe.client.ZeebeClient;
+import io.camunda.zeebe.client.ZeebeClientBuilder;
 import io.camunda.zeebe.client.api.command.CompleteJobCommandStep1;
 import io.camunda.zeebe.client.api.command.FinalCommandStep;
 import io.camunda.zeebe.client.api.response.ActivatedJob;
@@ -9,8 +10,12 @@ import io.camunda.zeebe.client.api.worker.JobHandler;
 import io.camunda.zeebe.client.api.worker.JobWorkerBuilderStep1;
 import io.camunda.zeebe.spring.client.exception.ZeebeBpmnError;
 import io.camunda.zeebe.spring.client.jobhandling.CommandWrapper;
+import io.camunda.zeebe.spring.client.properties.ZeebeClientConfigurationProperties;
+
 import org.camunda.community.benchmarks.config.BenchmarkConfiguration;
 import org.camunda.community.benchmarks.refactoring.RefactoredCommandWrapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.TaskScheduler;
 import org.springframework.stereotype.Component;
@@ -19,7 +24,9 @@ import java.time.Instant;
 
 @Component
 public class JobWorker {
-
+    
+    private static final Logger LOG = LoggerFactory.getLogger(JobWorker.class);
+    
     @Autowired
     private BenchmarkConfiguration config;
 
@@ -40,16 +47,22 @@ public class JobWorker {
 
         long fixedBackOffDelay = config.getFixedBackOffDelay();
 
-        JobWorkerBuilderStep1.JobWorkerBuilderStep3 step3 = client.newWorker()
+        // TODO remove once camunda/zeebe#14176 is fixed
+        ((ZeebeClientConfigurationProperties) client.getConfiguration()).getWorker().setDefaultName("c8b");
+
+        JobWorkerBuilderStep1.JobWorkerBuilderStep3 worker = client.newWorker()
                 .jobType(jobType)
                 .handler(new SimpleDelayCompletionHandler(false))
-                .name(jobType);
+                .streamEnabled(true)
+                .name("c8b-" + jobType);
 
         if(fixedBackOffDelay > 0) {
-            step3.backoffSupplier(new FixedBackoffSupplier(fixedBackOffDelay));
+            worker.backoffSupplier(new FixedBackoffSupplier(fixedBackOffDelay));
         }
 
-        step3.open();
+        worker.open();
+
+        LOG.info("Worker "+jobType+" started");
     }
 
     // Don't do @PostConstruct as this is too early in the Spring lifecycle
@@ -87,13 +100,13 @@ public class JobWorker {
         registerWorker(taskType);
 
         // worker for normal "task-type-{starterId}"
-        registerWorker(taskType + "-" + config.getStarterId());
+        // TODO: make configurable: registerWorker(taskType + "-" + config.getStarterId());
 
         // worker marking completion of process instance via "task-type-complete"
-        registerWorker(taskType + "-completed");
+        // TODO: make configurable: registerWorker(taskType + "-completed");
 
         // worker marking completion of process instance via "task-type-complete"
-        registerWorker(taskType + "-" + config.getStarterId() + "-completed");
+        // TODO: make configurable: registerWorker(taskType + "-" + config.getStarterId() + "-completed");
     }
 
     public class SimpleDelayCompletionHandler implements JobHandler {
